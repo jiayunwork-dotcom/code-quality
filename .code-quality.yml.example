@@ -1,0 +1,98 @@
+# 代码质量工具配置文件
+# 放置在项目根目录
+
+thresholds:
+  # 圈复杂度阈值
+  cyclomatic_complexity_yellow: 10
+  cyclomatic_complexity_red: 20
+  
+  # 认知复杂度阈值
+  cognitive_complexity_yellow: 15
+  cognitive_complexity_red: 25
+  
+  # 函数行数阈值
+  function_loc_yellow: 50
+  function_loc_red: 100
+  
+  # 参数数量阈值
+  param_count_yellow: 5
+  param_count_red: 8
+  
+  # 类方法数量阈值 (神类检测)
+  class_method_count_yellow: 15
+  class_method_count_red: 20
+  
+  # 类耦合度阈值 (CBO)
+  cbo_yellow: 10
+  cbo_red: 20
+  
+  # 响应集阈值 (RFC)
+  rfc_yellow: 30
+  rfc_red: 50
+
+# 需要忽略的目录
+ignore_dirs:
+  - vendor
+  - node_modules
+  - generated
+  - dist
+  - build
+  - .git
+  - __pycache__
+  - .idea
+  - .vscode
+
+# 分层架构规则 (用于层级违反检测)
+layers:
+  - name: controller
+    paths:
+      - "**/controller/**"
+      - "**/controllers/**"
+    may_depend:
+      - service
+      - repository
+      - model
+  
+  - name: service
+    paths:
+      - "**/service/**"
+      - "**/services/**"
+    may_depend:
+      - repository
+      - model
+  
+  - name: repository
+    paths:
+      - "**/repository/**"
+      - "**/repositories/**"
+    may_depend:
+      - model
+  
+  - name: model
+    paths:
+      - "**/model/**"
+      - "**/models/**"
+      - "**/entity/**"
+    may_depend: []
+
+# 检测规则开关
+rules:
+  cyclomatic-complexity: true
+  cognitive-complexity: true
+  function-length: true
+  long-parameter-list: true
+  god-class: true
+  feature-envy: true
+  data-clumps: true
+  cyclic-dependencies: true
+  layer-violations: true
+  change-hotspots: true
+
+# 按路径覆盖配置
+path_overrides:
+  "test/**":
+    thresholds:
+      function_loc_yellow: 100
+      function_loc_red: 200
+    rules:
+      cyclomatic-complexity: false

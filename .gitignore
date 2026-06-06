@@ -1,0 +1,31 @@
+# 构建产物
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go 相关
+*.test
+*.out
+coverage.out
+coverage.html
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+
+# 工具生成的文件
+.code-quality/
+.code-quality.yml
+.qualityignore
