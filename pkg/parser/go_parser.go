@@ -36,17 +36,17 @@ func (p *GoParser) Parse(filePath string, content []byte) (*model.File, error) {
 		Lines:    len(lines),
 	}
 
-	functions, err := p.extractFunctions(lines)
-	if err != nil {
-		return nil, err
-	}
-	file.Functions = functions
-
 	classes, err := p.extractClasses(lines)
 	if err != nil {
 		return nil, err
 	}
 	file.Classes = classes
+
+	functions, err := p.extractFunctions(lines, classes)
+	if err != nil {
+		return nil, err
+	}
+	file.Functions = functions
 
 	imports, err := p.extractImports(lines)
 	if err != nil {
@@ -59,7 +59,7 @@ func (p *GoParser) Parse(filePath string, content []byte) (*model.File, error) {
 	return file, nil
 }
 
-func (p *GoParser) extractFunctions(lines []string) ([]model.Function, error) {
+func (p *GoParser) extractFunctions(lines []string, classes []model.Class) ([]model.Function, error) {
 	var functions []model.Function
 	var currentFunc *model.Function
 	var braceDepth int
@@ -90,6 +90,7 @@ func (p *GoParser) extractFunctions(lines []string) ([]model.Function, error) {
 						currentFunc.EndLine = lineNum
 						currentFunc.NestingDepth = CalculateNestingDepth(
 							lines, currentFunc.StartLine-1, currentFunc.EndLine-1, "{", "}")
+						currentFunc.ParentClass = findParentClass(currentFunc.StartLine, classes)
 						functions = append(functions, *currentFunc)
 						currentFunc = nil
 						break

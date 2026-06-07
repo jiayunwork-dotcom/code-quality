@@ -37,17 +37,17 @@ func (p *PythonParser) Parse(filePath string, content []byte) (*model.File, erro
 		Lines:    len(lines),
 	}
 
-	functions, err := p.extractFunctions(lines)
-	if err != nil {
-		return nil, err
-	}
-	file.Functions = functions
-
 	classes, err := p.extractClasses(lines)
 	if err != nil {
 		return nil, err
 	}
 	file.Classes = classes
+
+	functions, err := p.extractFunctions(lines, classes)
+	if err != nil {
+		return nil, err
+	}
+	file.Functions = functions
 
 	imports, err := p.extractImports(lines)
 	if err != nil {
@@ -60,7 +60,7 @@ func (p *PythonParser) Parse(filePath string, content []byte) (*model.File, erro
 	return file, nil
 }
 
-func (p *PythonParser) extractFunctions(lines []string) ([]model.Function, error) {
+func (p *PythonParser) extractFunctions(lines []string, classes []model.Class) ([]model.Function, error) {
 	var functions []model.Function
 	var currentFunc *model.Function
 	var currentIndent int
@@ -73,6 +73,7 @@ func (p *PythonParser) extractFunctions(lines []string) ([]model.Function, error
 			if currentFunc != nil {
 				currentFunc.EndLine = lineNum - 1
 				currentFunc.NestingDepth = p.calculatePythonNesting(lines, currentFunc.StartLine-1, currentFunc.EndLine-1)
+				currentFunc.ParentClass = findParentClass(currentFunc.StartLine, classes)
 				functions = append(functions, *currentFunc)
 			}
 
@@ -93,6 +94,7 @@ func (p *PythonParser) extractFunctions(lines []string) ([]model.Function, error
 			if !strings.HasSuffix(strings.TrimSpace(line), "\\") {
 				currentFunc.EndLine = lineNum - 1
 				currentFunc.NestingDepth = p.calculatePythonNesting(lines, currentFunc.StartLine-1, currentFunc.EndLine-1)
+				currentFunc.ParentClass = findParentClass(currentFunc.StartLine, classes)
 				functions = append(functions, *currentFunc)
 				currentFunc = nil
 			}
@@ -102,10 +104,20 @@ func (p *PythonParser) extractFunctions(lines []string) ([]model.Function, error
 	if currentFunc != nil {
 		currentFunc.EndLine = len(lines)
 		currentFunc.NestingDepth = p.calculatePythonNesting(lines, currentFunc.StartLine-1, currentFunc.EndLine-1)
+		currentFunc.ParentClass = findParentClass(currentFunc.StartLine, classes)
 		functions = append(functions, *currentFunc)
 	}
 
 	return functions, nil
+}
+
+func findParentClass(lineNum int, classes []model.Class) string {
+	for _, cls := range classes {
+		if lineNum >= cls.StartLine && lineNum <= cls.EndLine {
+			return cls.Name
+		}
+	}
+	return ""
 }
 
 func (p *PythonParser) extractClasses(lines []string) ([]model.Class, error) {

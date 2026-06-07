@@ -71,11 +71,11 @@ func (p *CStyleParser) Parse(filePath string, content []byte) (*model.File, erro
 		Lines:    len(lines),
 	}
 
-	functions := p.extractFunctions(lines)
-	file.Functions = functions
-
 	classes := p.extractClasses(lines)
 	file.Classes = classes
+
+	functions := p.extractFunctions(lines, classes)
+	file.Functions = functions
 
 	imports := p.extractImports(lines)
 	file.Imports = imports
@@ -85,7 +85,7 @@ func (p *CStyleParser) Parse(filePath string, content []byte) (*model.File, erro
 	return file, nil
 }
 
-func (p *CStyleParser) extractFunctions(lines []string) []model.Function {
+func (p *CStyleParser) extractFunctions(lines []string, classes []model.Class) []model.Function {
 	var functions []model.Function
 	var currentFunc *model.Function
 	var braceDepth int
@@ -130,6 +130,7 @@ func (p *CStyleParser) extractFunctions(lines []string) []model.Function {
 					currentFunc.EndLine = lineNum
 					currentFunc.NestingDepth = CalculateNestingDepth(
 						lines, currentFunc.StartLine-1, currentFunc.EndLine-1, "{", "}")
+					currentFunc.ParentClass = findParentClass(currentFunc.StartLine, classes)
 					functions = append(functions, *currentFunc)
 					currentFunc = nil
 					break

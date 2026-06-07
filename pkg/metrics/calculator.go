@@ -134,16 +134,18 @@ func (c *Calculator) calculateCyclomaticComplexity(lines []string, lang model.La
 
 func (c *Calculator) calculateCognitiveComplexity(lines []string, lang model.Language) int {
 	complexity := 0
-	nestingLevel := 0
 	branchKeywords := getBranchKeywords(lang)
 
+	if lang == model.LangPython {
+		return c.calculatePythonCognitiveComplexity(lines, branchKeywords)
+	}
+
+	nestingLevel := 0
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || isCommentLine(trimmed, lang) {
 			continue
 		}
-
-		indentLevel := getLineIndent(line)
 
 		isBranch := false
 		for _, kw := range branchKeywords {
@@ -153,7 +155,7 @@ func (c *Calculator) calculateCognitiveComplexity(lines []string, lang model.Lan
 			}
 		}
 
-		if strings.Contains(trimmed, "{") && indentLevel >= 0 {
+		if strings.Contains(trimmed, "{") {
 			if isBranch {
 				weight := nestingLevel + 1
 				complexity += weight
@@ -163,6 +165,49 @@ func (c *Calculator) calculateCognitiveComplexity(lines []string, lang model.Lan
 
 		if strings.Contains(trimmed, "}") && nestingLevel > 0 {
 			nestingLevel--
+		}
+	}
+
+	return complexity
+}
+
+func (c *Calculator) calculatePythonCognitiveComplexity(lines []string, branchKeywords []string) int {
+	complexity := 0
+	nestingLevel := 0
+	indentStack := []int{-1}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || isCommentLine(trimmed, model.LangPython) {
+			continue
+		}
+
+		currentIndent := getLineIndent(line)
+
+		for len(indentStack) > 1 && currentIndent <= indentStack[len(indentStack)-1] {
+			indentStack = indentStack[:len(indentStack)-1]
+			if nestingLevel > 0 {
+				nestingLevel--
+			}
+		}
+
+		isBranch := false
+		for _, kw := range branchKeywords {
+			if strings.HasPrefix(trimmed, kw) {
+				isBranch = true
+				break
+			}
+		}
+
+		if strings.HasSuffix(trimmed, ":") {
+			if isBranch {
+				weight := nestingLevel + 1
+				complexity += weight
+				nestingLevel++
+				indentStack = append(indentStack, currentIndent)
+			} else if strings.HasPrefix(trimmed, "def ") || strings.HasPrefix(trimmed, "class ") {
+				indentStack = append(indentStack, currentIndent)
+			}
 		}
 	}
 

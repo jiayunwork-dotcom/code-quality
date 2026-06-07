@@ -3,6 +3,7 @@ package analysis
 import (
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/code-quality/cli/pkg/model"
@@ -220,7 +221,7 @@ func (a *ArchitectureAnalyzer) detectGodClasses(files []*model.FileReport) []mod
 					Severity: model.SeverityMedium,
 					Message:  "神类检测: " + cm.ClassName + " 方法数量过多且耦合度高",
 					FilePath: cm.FilePath,
-					Details:  []string{"方法数: " + string(rune(cm.MethodCount)), "耦合度: " + string(rune(cm.CBO))},
+					Details:  []string{"方法数: " + strconv.Itoa(cm.MethodCount), "耦合度: " + strconv.Itoa(cm.CBO)},
 				})
 			}
 		}
@@ -232,16 +233,79 @@ func (a *ArchitectureAnalyzer) detectGodClasses(files []*model.FileReport) []mod
 func (a *ArchitectureAnalyzer) detectFeatureEnvy(files []*model.FileReport) []model.ArchitectureIssue {
 	var issues []model.ArchitectureIssue
 
-	classMethods := make(map[string]map[string][]string)
+	allAttrs := make(map[string]map[string]bool)
+	classAttrCount := make(map[string]int)
 	for _, fr := range files {
 		if fr.File == nil {
 			continue
 		}
 		for _, cls := range fr.File.Classes {
-			if _, ok := classMethods[fr.File.Path]; !ok {
-				classMethods[fr.File.Path] = make(map[string][]string)
+			key := fr.File.Path + ":" + cls.Name
+			allAttrs[key] = make(map[string]bool)
+			for _, attr := range cls.Attributes {
+				allAttrs[key][attr] = true
 			}
-			classMethods[fr.File.Path][cls.Name] = cls.Attributes
+			classAttrCount[key] = len(cls.Attributes)
+		}
+	}
+
+	for _, fr := range files {
+		if fr.File == nil {
+			continue
+		}
+		for _, cls := range fr.File.Classes {
+			selfKey := fr.File.Path + ":" + cls.Name
+			selfAttrs := allAttrs[selfKey]
+
+			for _, fn := range fr.File.Functions {
+				if fn.ParentClass != cls.Name && fn.ParentClass != "" {
+					continue
+				}
+				if fn.ParentClass == "" && !strings.HasPrefix(fn.Name, cls.Name) {
+					continue
+				}
+
+				otherAccess := make(map[string]int)
+				selfAccessCount := 0
+
+				if len(fn.Calls) == 0 {
+					continue
+				}
+
+				for _, call := range fn.Calls {
+					if call.TargetObj != "" && call.TargetObj != "self" && call.TargetObj != "this" {
+						for otherKey, attrs := range allAttrs {
+							if otherKey == selfKey {
+								continue
+							}
+							for attr := range attrs {
+								if strings.Contains(call.Callee, attr) || strings.Contains(call.TargetObj, attr) {
+									otherAccess[otherKey]++
+								}
+							}
+						}
+					} else if call.TargetObj == "self" || call.TargetObj == "this" {
+						for selfAttr := range selfAttrs {
+							if strings.Contains(call.Callee, selfAttr) {
+								selfAccessCount++
+							}
+						}
+					}
+				}
+
+				for otherKey, count := range otherAccess {
+					if count > 3 && count > selfAccessCount {
+						otherClassName := strings.SplitN(otherKey, ":", 2)[1]
+						issues = append(issues, model.ArchitectureIssue{
+							Type:     "feature-envy",
+							Severity: model.SeverityMedium,
+							Message:  "特征依恋: 方法 " + fn.Name + " 大量访问类 " + otherClassName + " 的属性",
+							FilePath: fr.File.Path,
+							Details:  []string{"访问外部属性次数: " + strconv.Itoa(count), "访问自身属性次数: " + strconv.Itoa(selfAccessCount)},
+						})
+					}
+				}
+			}
 		}
 	}
 
