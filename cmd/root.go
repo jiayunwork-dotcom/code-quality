@@ -27,6 +27,7 @@ var (
 	withBaseline bool
 	saveBaseline bool
 	failOn       string
+	incremental  bool
 )
 
 func init() {
@@ -37,6 +38,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&withBaseline, "baseline", false, "与基线对比")
 	rootCmd.Flags().BoolVar(&saveBaseline, "save-baseline", false, "保存当前结果为基线")
 	rootCmd.Flags().StringVar(&failOn, "fail-on", "critical,high", "导致退出码为1的严重级别: critical,high,medium,all")
+	rootCmd.Flags().BoolVar(&incremental, "incremental", false, "增量分析模式，只分析最近一次提交修改的文件并与基线对比")
 }
 
 func Execute() {
@@ -73,6 +75,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		WithBaseline: withBaseline,
 		SaveBaseline: saveBaseline,
 		FailOn:       failOn,
+		Incremental:  incremental,
 	}
 
 	s, err := scanner.NewScanner(projectRoot, options)

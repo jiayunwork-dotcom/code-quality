@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -26,12 +27,13 @@ type Scanner struct {
 }
 
 type ScanOptions struct {
-	SinceDays   int
-	DiffRange   string
-	FilesOnly   []string
+	SinceDays    int
+	DiffRange    string
+	FilesOnly    []string
 	WithBaseline bool
 	SaveBaseline bool
-	FailOn      string
+	FailOn       string
+	Incremental  bool
 }
 
 func NewScanner(projectRoot string, options ScanOptions) (*Scanner, error) {
@@ -58,6 +60,13 @@ func NewScanner(projectRoot string, options ScanOptions) (*Scanner, error) {
 }
 
 func (s *Scanner) Scan() (*model.ProjectReport, error) {
+	if s.options.Incremental {
+		return s.scanIncremental()
+	}
+	return s.scanFull()
+}
+
+func (s *Scanner) scanFull() (*model.ProjectReport, error) {
 	files, err := s.getFilesToScan()
 	if err != nil {
 		return nil, err
@@ -121,6 +130,101 @@ func (s *Scanner) Scan() (*model.ProjectReport, error) {
 		if err := s.baselineMgr.Save(report); err != nil {
 			log.Printf("Warning: 保存基线失败: %v\n", err)
 		}
+	}
+
+	s.assignViolationIDs(report)
+
+	return report, nil
+}
+
+func (s *Scanner) scanIncremental() (*model.ProjectReport, error) {
+	if !s.baselineMgr.Exists() {
+		log.Println("未找到基线文件，正在执行全量扫描生成基线...")
+		fullReport, err := s.scanFull()
+		if err != nil {
+			return nil, err
+		}
+		if err := s.baselineMgr.Save(fullReport); err != nil {
+			log.Printf("Warning: 保存基线失败: %v\n", err)
+		}
+		log.Println("基线已生成，开始增量分析...")
+	}
+
+	if !s.gitAnalyzer.IsGitRepo() {
+		return nil, fmt.Errorf("增量模式需要 Git 仓库")
+	}
+
+	changedFiles, err := s.gitAnalyzer.GetChangedFiles("HEAD~1")
+	if err != nil {
+		return nil, fmt.Errorf("获取变更文件失败: %v", err)
+	}
+
+	if len(changedFiles) == 0 {
+		log.Println("未检测到变更文件")
+		emptyReport := &model.ProjectReport{
+			Files:       []*model.FileReport{},
+			GeneratedAt: time.Now().Format(time.RFC3339),
+			BaselineDiff: &model.BaselineDiff{
+				IncrementalDiff: &model.IncrementalDiff{
+					FunctionChanges: []model.FunctionChange{},
+					NewViolations:   []model.Violation{},
+				},
+			},
+		}
+		emptyReport.Summary = s.calculateSummary(emptyReport)
+		return emptyReport, nil
+	}
+
+	calc := metrics.NewCalculator(s.config)
+	analyzer := analysis.NewArchitectureAnalyzer(s.config)
+
+	var fileReports []*model.FileReport
+	var fileReportPointers []*model.FileReport
+
+	for _, filePath := range changedFiles {
+		if config.ShouldIgnore(filePath, s.ignoreRules, "") {
+			continue
+		}
+		if !isSupportedFile(filePath) {
+			continue
+		}
+		if _, err := os.Stat(filePath); err != nil {
+			continue
+		}
+
+		report, err := calc.CalculateFile(filePath)
+		if err != nil {
+			log.Printf("Warning: 解析文件失败 %s: %v\n", filePath, err)
+			continue
+		}
+		if report == nil {
+			continue
+		}
+
+		report.Violations = s.filterIgnoredViolations(filePath, report.Violations)
+
+		fileReports = append(fileReports, report)
+		fileReportPointers = append(fileReportPointers, report)
+	}
+
+	archIssues := analyzer.Analyze(fileReportPointers)
+
+	report := &model.ProjectReport{
+		Files:              fileReports,
+		ArchitectureIssues: archIssues,
+		GeneratedAt:        time.Now().Format(time.RFC3339),
+	}
+
+	report.Summary = s.calculateSummary(report)
+
+	incDiff, err := s.baselineMgr.CompareIncremental(report, changedFiles)
+	if err == nil {
+		if report.BaselineDiff == nil {
+			report.BaselineDiff = &model.BaselineDiff{}
+		}
+		report.BaselineDiff.IncrementalDiff = incDiff
+	} else {
+		log.Printf("Warning: 增量对比失败: %v\n", err)
 	}
 
 	s.assignViolationIDs(report)
@@ -258,6 +362,13 @@ func (s *Scanner) assignViolationIDs(report *model.ProjectReport) {
 }
 
 func (s *Scanner) GetExitCode(report *model.ProjectReport) int {
+	if s.options.Incremental {
+		return s.getIncrementalExitCode(report)
+	}
+	return s.getFullExitCode(report)
+}
+
+func (s *Scanner) getFullExitCode(report *model.ProjectReport) int {
 	failOn := s.options.FailOn
 	if failOn == "" {
 		failOn = "critical,high"
@@ -284,6 +395,26 @@ func (s *Scanner) GetExitCode(report *model.ProjectReport) int {
 
 	if failLevels["medium"] && report.Summary.MediumCount > 0 {
 		return 1
+	}
+
+	return 0
+}
+
+func (s *Scanner) getIncrementalExitCode(report *model.ProjectReport) int {
+	if report.BaselineDiff == nil || report.BaselineDiff.IncrementalDiff == nil {
+		return 0
+	}
+
+	incDiff := report.BaselineDiff.IncrementalDiff
+
+	if len(incDiff.NewViolations) > 0 {
+		return 1
+	}
+
+	for _, fc := range incDiff.FunctionChanges {
+		if fc.ChangeType == model.FuncChangeDeteriorated {
+			return 1
+		}
 	}
 
 	return 0

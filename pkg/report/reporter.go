@@ -35,6 +35,20 @@ func NewReporter(format Format, output string) *Reporter {
 }
 
 func (r *Reporter) Generate(report *model.ProjectReport) error {
+	if report.BaselineDiff != nil && report.BaselineDiff.IncrementalDiff != nil {
+		switch r.format {
+		case FormatText:
+			return r.generateIncrementalText(report)
+		case FormatJSON:
+			return r.generateJSON(report)
+		case FormatHTML:
+			return r.generateHTML(report)
+		case FormatSARIF:
+			return r.generateSARIF(report)
+		default:
+			return r.generateIncrementalText(report)
+		}
+	}
 	switch r.format {
 	case FormatText:
 		return r.generateText(report)
@@ -492,4 +506,161 @@ func (r *Reporter) generateSARIF(report *model.ProjectReport) error {
 	}
 	fmt.Println(string(data))
 	return nil
+}
+
+func (r *Reporter) generateIncrementalText(report *model.ProjectReport) error {
+	color.Cyan("\n=== 增量代码质量分析报告 ===\n")
+
+	if report.BaselineDiff == nil || report.BaselineDiff.IncrementalDiff == nil {
+		fmt.Println("无增量对比数据")
+		return nil
+	}
+
+	incDiff := report.BaselineDiff.IncrementalDiff
+
+	fmt.Printf("分析文件数: %d\n", len(report.Files))
+	fmt.Printf("函数变化数: %d\n", len(incDiff.FunctionChanges))
+	fmt.Printf("新增违规数: %d\n", len(incDiff.NewViolations))
+
+	if len(incDiff.FunctionChanges) > 0 {
+		color.Yellow("\n--- 函数变化详情 ---\n")
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "文件名\t函数名\t变化类型\t指标变化详情")
+		fmt.Fprintln(tw, "------\t------\t--------\t------------")
+
+		for _, fc := range incDiff.FunctionChanges {
+			relPath, _ := filepath.Rel(".", fc.FilePath)
+			changeType := ""
+			typeColor := color.WhiteString
+			switch fc.ChangeType {
+			case model.FuncChangeAdded:
+				changeType = "新增"
+				typeColor = color.YellowString
+			case model.FuncChangeRemoved:
+				changeType = "删除"
+				typeColor = color.YellowString
+			case model.FuncChangeDeteriorated:
+				changeType = "恶化"
+				typeColor = color.RedString
+			case model.FuncChangeImproved:
+				changeType = "改善"
+				typeColor = color.GreenString
+			}
+
+			details := r.formatMetricChanges(fc)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+				relPath,
+				fc.FunctionName,
+				typeColor(changeType),
+				details,
+			)
+		}
+		tw.Flush()
+	}
+
+	if len(incDiff.NewViolations) > 0 {
+		color.Red("\n--- 新增违规详情 ---\n")
+		for _, v := range incDiff.NewViolations {
+			relPath, _ := filepath.Rel(".", v.FilePath)
+			sevColor := color.WhiteString
+			switch v.Severity {
+			case model.SeverityCritical:
+				sevColor = color.RedString
+			case model.SeverityHigh:
+				sevColor = color.MagentaString
+			case model.SeverityMedium:
+				sevColor = color.YellowString
+			case model.SeverityLow:
+				sevColor = color.GreenString
+			}
+			fmt.Printf("  %s L%d-%d: [%s] %s\n",
+				relPath,
+				v.StartLine, v.EndLine,
+				sevColor(strings.ToUpper(string(v.Severity))),
+				v.Message)
+		}
+	}
+
+	addedCount := 0
+	removedCount := 0
+	deterioratedCount := 0
+	improvedCount := 0
+	for _, fc := range incDiff.FunctionChanges {
+		switch fc.ChangeType {
+		case model.FuncChangeAdded:
+			addedCount++
+		case model.FuncChangeRemoved:
+			removedCount++
+		case model.FuncChangeDeteriorated:
+			deterioratedCount++
+		case model.FuncChangeImproved:
+			improvedCount++
+		}
+	}
+
+	color.Cyan("\n--- 统计汇总 ---\n")
+	fmt.Printf("  新增函数: %d 个\n", addedCount)
+	fmt.Printf("  删除函数: %d 个\n", removedCount)
+	if deterioratedCount > 0 {
+		color.Red("  指标恶化: %d 个\n", deterioratedCount)
+	} else {
+		fmt.Printf("  指标恶化: %d 个\n", deterioratedCount)
+	}
+	if improvedCount > 0 {
+		color.Green("  指标改善: %d 个\n", improvedCount)
+	} else {
+		fmt.Printf("  指标改善: %d 个\n", improvedCount)
+	}
+
+	return nil
+}
+
+func (r *Reporter) formatMetricChanges(fc model.FunctionChange) string {
+	var parts []string
+
+	if fc.CyclomaticChange != nil {
+		cc := fc.CyclomaticChange
+		direction := "↑"
+		if cc.Delta < 0 {
+			direction = "↓"
+		}
+		parts = append(parts, fmt.Sprintf("圈复杂度 %d→%d (%s%d)",
+			cc.Before, cc.After, direction, abs(cc.Delta)))
+	}
+	if fc.CognitiveChange != nil {
+		cog := fc.CognitiveChange
+		direction := "↑"
+		if cog.Delta < 0 {
+			direction = "↓"
+		}
+		parts = append(parts, fmt.Sprintf("认知复杂度 %d→%d (%s%d)",
+			cog.Before, cog.After, direction, abs(cog.Delta)))
+	}
+	if fc.LOCChange != nil {
+		loc := fc.LOCChange
+		direction := "↑"
+		if loc.Delta < 0 {
+			direction = "↓"
+		}
+		parts = append(parts, fmt.Sprintf("行数 %d→%d (%s%d)",
+			loc.Before, loc.After, direction, abs(loc.Delta)))
+	}
+
+	if len(parts) == 0 {
+		switch fc.ChangeType {
+		case model.FuncChangeAdded:
+			return "新增函数"
+		case model.FuncChangeRemoved:
+			return "删除函数"
+		}
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }

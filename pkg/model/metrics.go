@@ -72,7 +72,7 @@ type FileReport struct {
 }
 
 type ProjectReport struct {
-	Files              []FileReport         `json:"files"`
+	Files              []*FileReport        `json:"files"`
 	ArchitectureIssues []ArchitectureIssue  `json:"architecture_issues"`
 	Summary            Summary              `json:"summary"`
 	GeneratedAt        string               `json:"generated_at"`
@@ -92,11 +92,42 @@ type Summary struct {
 	HotspotsCount    int `json:"hotspots_count"`
 }
 
+type FunctionChangeType string
+
+const (
+	FuncChangeAdded      FunctionChangeType = "added"
+	FuncChangeRemoved    FunctionChangeType = "removed"
+	FuncChangeDeteriorated FunctionChangeType = "deteriorated"
+	FuncChangeImproved   FunctionChangeType = "improved"
+	FuncChangeUnchanged  FunctionChangeType = "unchanged"
+)
+
+type MetricChange struct {
+	Before int `json:"before"`
+	After  int `json:"after"`
+	Delta  int `json:"delta"`
+}
+
+type FunctionChange struct {
+	FilePath           string             `json:"file_path"`
+	FunctionName       string             `json:"function_name"`
+	ChangeType         FunctionChangeType `json:"change_type"`
+	CyclomaticChange   *MetricChange      `json:"cyclomatic_change,omitempty"`
+	CognitiveChange    *MetricChange      `json:"cognitive_change,omitempty"`
+	LOCChange          *MetricChange      `json:"loc_change,omitempty"`
+}
+
+type IncrementalDiff struct {
+	FunctionChanges []FunctionChange `json:"function_changes"`
+	NewViolations   []Violation      `json:"new_violations"`
+}
+
 type BaselineDiff struct {
 	NewViolations     []Violation `json:"new_violations"`
 	FixedViolations   []Violation `json:"fixed_violations"`
 	DeterioratedFuncs []string    `json:"deteriorated_functions"`
 	ImprovedFuncs     []string    `json:"improved_functions"`
+	IncrementalDiff   *IncrementalDiff `json:"incremental_diff,omitempty"`
 }
 
 type BaselineSnapshot struct {
