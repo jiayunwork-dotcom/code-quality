@@ -618,32 +618,46 @@ func (r *Reporter) generateIncrementalText(report *model.ProjectReport) error {
 func (r *Reporter) formatMetricChanges(fc model.FunctionChange) string {
 	var parts []string
 
+	isAdded := fc.ChangeType == model.FuncChangeAdded
+
 	if fc.CyclomaticChange != nil {
 		cc := fc.CyclomaticChange
-		direction := "↑"
-		if cc.Delta < 0 {
-			direction = "↓"
+		if isAdded && cc.Before == 0 {
+			parts = append(parts, fmt.Sprintf("圈复杂度 %d", cc.After))
+		} else {
+			direction := "↑"
+			if cc.Delta < 0 {
+				direction = "↓"
+			}
+			parts = append(parts, fmt.Sprintf("圈复杂度 %d→%d (%s%d)",
+				cc.Before, cc.After, direction, abs(cc.Delta)))
 		}
-		parts = append(parts, fmt.Sprintf("圈复杂度 %d→%d (%s%d)",
-			cc.Before, cc.After, direction, abs(cc.Delta)))
 	}
 	if fc.CognitiveChange != nil {
 		cog := fc.CognitiveChange
-		direction := "↑"
-		if cog.Delta < 0 {
-			direction = "↓"
+		if isAdded && cog.Before == 0 {
+			parts = append(parts, fmt.Sprintf("认知复杂度 %d", cog.After))
+		} else {
+			direction := "↑"
+			if cog.Delta < 0 {
+				direction = "↓"
+			}
+			parts = append(parts, fmt.Sprintf("认知复杂度 %d→%d (%s%d)",
+				cog.Before, cog.After, direction, abs(cog.Delta)))
 		}
-		parts = append(parts, fmt.Sprintf("认知复杂度 %d→%d (%s%d)",
-			cog.Before, cog.After, direction, abs(cog.Delta)))
 	}
 	if fc.LOCChange != nil {
 		loc := fc.LOCChange
-		direction := "↑"
-		if loc.Delta < 0 {
-			direction = "↓"
+		if isAdded && loc.Before == 0 {
+			parts = append(parts, fmt.Sprintf("行数 %d", loc.After))
+		} else {
+			direction := "↑"
+			if loc.Delta < 0 {
+				direction = "↓"
+			}
+			parts = append(parts, fmt.Sprintf("行数 %d→%d (%s%d)",
+				loc.Before, loc.After, direction, abs(loc.Delta)))
 		}
-		parts = append(parts, fmt.Sprintf("行数 %d→%d (%s%d)",
-			loc.Before, loc.After, direction, abs(loc.Delta)))
 	}
 
 	if len(parts) == 0 {

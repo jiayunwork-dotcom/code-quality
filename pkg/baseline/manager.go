@@ -2,6 +2,7 @@ package baseline
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -90,13 +91,13 @@ func (m *Manager) Compare(currentReport *model.ProjectReport) (*model.BaselineDi
 
 	baselineViolationMap := make(map[string]bool)
 	for _, v := range baseline.Violations {
-		key := v.RuleID + ":" + v.FilePath + ":" + string(rune(v.StartLine))
+		key := v.RuleID + ":" + v.FilePath + ":" + fmt.Sprintf("%d", v.StartLine)
 		baselineViolationMap[key] = true
 	}
 
 	for _, fr := range currentReport.Files {
 		for _, v := range fr.Violations {
-			key := v.RuleID + ":" + v.FilePath + ":" + string(rune(v.StartLine))
+			key := v.RuleID + ":" + v.FilePath + ":" + fmt.Sprintf("%d", v.StartLine)
 			if !baselineViolationMap[key] {
 				diff.NewViolations = append(diff.NewViolations, v)
 			}
@@ -106,13 +107,13 @@ func (m *Manager) Compare(currentReport *model.ProjectReport) (*model.BaselineDi
 	currentViolationMap := make(map[string]bool)
 	for _, fr := range currentReport.Files {
 		for _, v := range fr.Violations {
-			key := v.RuleID + ":" + v.FilePath + ":" + string(rune(v.StartLine))
+			key := v.RuleID + ":" + v.FilePath + ":" + fmt.Sprintf("%d", v.StartLine)
 			currentViolationMap[key] = true
 		}
 	}
 
 	for _, v := range baseline.Violations {
-		key := v.RuleID + ":" + v.FilePath + ":" + string(rune(v.StartLine))
+		key := v.RuleID + ":" + v.FilePath + ":" + fmt.Sprintf("%d", v.StartLine)
 		if !currentViolationMap[key] {
 			diff.FixedViolations = append(diff.FixedViolations, v)
 		}
@@ -153,7 +154,7 @@ func (m *Manager) CompareIncremental(currentReport *model.ProjectReport, changed
 
 	baselineViolationMap := make(map[string]bool)
 	for _, v := range baseline.Violations {
-		key := v.RuleID + ":" + v.FilePath + ":" + string(rune(v.StartLine))
+		key := v.RuleID + ":" + v.FilePath + ":" + fmt.Sprintf("%d", v.StartLine)
 		baselineViolationMap[key] = true
 	}
 
@@ -170,7 +171,7 @@ func (m *Manager) CompareIncremental(currentReport *model.ProjectReport, changed
 			continue
 		}
 		for _, v := range fr.Violations {
-			key := v.RuleID + ":" + v.FilePath + ":" + string(rune(v.StartLine))
+			key := v.RuleID + ":" + v.FilePath + ":" + fmt.Sprintf("%d", v.StartLine)
 			if !baselineViolationMap[key] {
 				diff.NewViolations = append(diff.NewViolations, v)
 			}
@@ -201,11 +202,33 @@ func (m *Manager) CompareIncremental(currentReport *model.ProjectReport, changed
 
 		for name, fm := range currentFuncMap {
 			if _, exists := baselineFuncMap[name]; !exists {
-				diff.FunctionChanges = append(diff.FunctionChanges, model.FunctionChange{
+				fc := model.FunctionChange{
 					FilePath:     filePath,
 					FunctionName: name,
 					ChangeType:   model.FuncChangeAdded,
-				})
+				}
+				if fm.CyclomaticComplexity > 0 {
+					fc.CyclomaticChange = &model.MetricChange{
+						Before: 0,
+						After:  fm.CyclomaticComplexity,
+						Delta:  fm.CyclomaticComplexity,
+					}
+				}
+				if fm.CognitiveComplexity > 0 {
+					fc.CognitiveChange = &model.MetricChange{
+						Before: 0,
+						After:  fm.CognitiveComplexity,
+						Delta:  fm.CognitiveComplexity,
+					}
+				}
+				if fm.LOC > 0 {
+					fc.LOCChange = &model.MetricChange{
+						Before: 0,
+						After:  fm.LOC,
+						Delta:  fm.LOC,
+					}
+				}
+				diff.FunctionChanges = append(diff.FunctionChanges, fc)
 				continue
 			}
 		}
