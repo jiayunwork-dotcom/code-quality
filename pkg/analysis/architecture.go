@@ -1,7 +1,9 @@
 package analysis
 
 import (
+	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -233,76 +235,85 @@ func (a *ArchitectureAnalyzer) detectGodClasses(files []*model.FileReport) []mod
 func (a *ArchitectureAnalyzer) detectFeatureEnvy(files []*model.FileReport) []model.ArchitectureIssue {
 	var issues []model.ArchitectureIssue
 
-	allAttrs := make(map[string]map[string]bool)
-	classAttrCount := make(map[string]int)
+	selfAccessRegex := regexp.MustCompile(`(?:self|this)\.(\w+)`)
+	objAccessRegex := regexp.MustCompile(`(\w+)\.(\w+)`)
+
+	fileLinesCache := make(map[string][]string)
+
 	for _, fr := range files {
 		if fr.File == nil {
 			continue
 		}
-		for _, cls := range fr.File.Classes {
-			key := fr.File.Path + ":" + cls.Name
-			allAttrs[key] = make(map[string]bool)
-			for _, attr := range cls.Attributes {
-				allAttrs[key][attr] = true
+
+		filePath := fr.File.Path
+		lines, ok := fileLinesCache[filePath]
+		if !ok {
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				continue
 			}
-			classAttrCount[key] = len(cls.Attributes)
+			lines = strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
+			fileLinesCache[filePath] = lines
 		}
-	}
 
-	for _, fr := range files {
-		if fr.File == nil {
-			continue
-		}
 		for _, cls := range fr.File.Classes {
-			selfKey := fr.File.Path + ":" + cls.Name
-			selfAttrs := allAttrs[selfKey]
-
 			for _, fn := range fr.File.Functions {
-				if fn.ParentClass != cls.Name && fn.ParentClass != "" {
-					continue
-				}
-				if fn.ParentClass == "" && !strings.HasPrefix(fn.Name, cls.Name) {
+				if fn.ParentClass != cls.Name {
 					continue
 				}
 
-				otherAccess := make(map[string]int)
 				selfAccessCount := 0
-
-				if len(fn.Calls) == 0 {
-					continue
+				otherObjAccess := make(map[string]int)
+				excludeVars := map[string]bool{
+					"self": true, "this": true, "True": true, "False": true,
+					"None": true, "null": true, "undefined": true,
+					"if": true, "for": true, "while": true, "else": true,
+					"elif": true, "return": true, "print": true, "len": true,
+					"str": true, "int": true, "float": true, "list": true,
+					"dict": true, "set": true, "bool": true,
 				}
 
-				for _, call := range fn.Calls {
-					if call.TargetObj != "" && call.TargetObj != "self" && call.TargetObj != "this" {
-						for otherKey, attrs := range allAttrs {
-							if otherKey == selfKey {
+				startIdx := fn.StartLine - 1
+				endIdx := fn.EndLine
+				if endIdx > len(lines) {
+					endIdx = len(lines)
+				}
+
+				for i := startIdx; i < endIdx; i++ {
+					line := lines[i]
+					trimmed := strings.TrimSpace(line)
+					if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
+						continue
+					}
+
+					if matches := selfAccessRegex.FindAllStringSubmatch(line, -1); matches != nil {
+						selfAccessCount += len(matches)
+					}
+
+					if matches := objAccessRegex.FindAllStringSubmatch(line, -1); matches != nil {
+						for _, m := range matches {
+							objName := m[1]
+							if excludeVars[objName] {
 								continue
 							}
-							for attr := range attrs {
-								if strings.Contains(call.Callee, attr) || strings.Contains(call.TargetObj, attr) {
-									otherAccess[otherKey]++
-								}
+							if objName == cls.Name {
+								continue
 							}
-						}
-					} else if call.TargetObj == "self" || call.TargetObj == "this" {
-						for selfAttr := range selfAttrs {
-							if strings.Contains(call.Callee, selfAttr) {
-								selfAccessCount++
-							}
+							otherObjAccess[objName]++
 						}
 					}
 				}
 
-				for otherKey, count := range otherAccess {
-					if count > 3 && count > selfAccessCount {
-						otherClassName := strings.SplitN(otherKey, ":", 2)[1]
+				for objName, count := range otherObjAccess {
+					if count >= 4 && count > selfAccessCount {
 						issues = append(issues, model.ArchitectureIssue{
 							Type:     "feature-envy",
 							Severity: model.SeverityMedium,
-							Message:  "特征依恋: 方法 " + fn.Name + " 大量访问类 " + otherClassName + " 的属性",
-							FilePath: fr.File.Path,
-							Details:  []string{"访问外部属性次数: " + strconv.Itoa(count), "访问自身属性次数: " + strconv.Itoa(selfAccessCount)},
+							Message:  "特征依恋: 方法 " + cls.Name + "." + fn.Name + " 大量访问对象 " + objName + " 的属性/方法",
+							FilePath: filePath,
+							Details:  []string{"访问外部对象次数: " + strconv.Itoa(count), "访问自身(self)次数: " + strconv.Itoa(selfAccessCount)},
 						})
+						break
 					}
 				}
 			}

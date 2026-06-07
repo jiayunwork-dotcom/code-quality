@@ -69,7 +69,8 @@ func (p *GoParser) extractFunctions(lines []string, classes []model.Class) ([]mo
 
 		if matches := goFuncRegex.FindStringSubmatch(line); matches != nil && currentFunc == nil {
 			funcName := matches[3]
-			paramContent := ExtractBracketContent(line[matches[0]:len(line)], '(', ')')
+			
+			paramContent := extractMultiLineParams(lines, i)
 			params := SplitParams(paramContent)
 
 			currentFunc = &model.Function{

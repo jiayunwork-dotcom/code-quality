@@ -78,7 +78,7 @@ func (p *PythonParser) extractFunctions(lines []string, classes []model.Class) (
 			}
 
 			funcName := matches[2]
-			paramContent := ExtractBracketContent(line, '(', ')')
+			paramContent := extractMultiLineParams(lines, i)
 			params := SplitParams(paramContent)
 
 			currentFunc = &model.Function{

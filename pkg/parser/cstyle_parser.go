@@ -104,7 +104,7 @@ func (p *CStyleParser) extractFunctions(lines []string, classes []model.Class) [
 					continue
 				}
 
-				paramContent := ExtractBracketContent(line, '(', ')')
+				paramContent := extractMultiLineParams(lines, i)
 				params := SplitParams(paramContent)
 
 				currentFunc = &model.Function{

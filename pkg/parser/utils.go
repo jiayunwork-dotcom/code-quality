@@ -97,17 +97,32 @@ func SplitParams(paramStr string) []string {
 	}
 	var params []string
 	var current strings.Builder
-	depth := 0
+	parenDepth := 0
+	bracketDepth := 0
+	braceDepth := 0
+
 	for _, c := range paramStr {
 		switch c {
 		case '(':
-			depth++
+			parenDepth++
 			current.WriteRune(c)
 		case ')':
-			depth--
+			parenDepth--
+			current.WriteRune(c)
+		case '[':
+			bracketDepth++
+			current.WriteRune(c)
+		case ']':
+			bracketDepth--
+			current.WriteRune(c)
+		case '{':
+			braceDepth++
+			current.WriteRune(c)
+		case '}':
+			braceDepth--
 			current.WriteRune(c)
 		case ',':
-			if depth == 0 {
+			if parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 {
 				p := strings.TrimSpace(current.String())
 				if p != "" {
 					params = append(params, p)
@@ -125,6 +140,53 @@ func SplitParams(paramStr string) []string {
 		params = append(params, p)
 	}
 	return params
+}
+
+func extractMultiLineParams(lines []string, startLineIdx int) string {
+	if startLineIdx >= len(lines) {
+		return ""
+	}
+
+	firstLine := lines[startLineIdx]
+	openIdx := strings.Index(firstLine, "(")
+	if openIdx == -1 {
+		return ""
+	}
+
+	var paramBuilder strings.Builder
+	depth := 0
+	started := false
+
+	for i := startLineIdx; i < len(lines); i++ {
+		line := lines[i]
+		for j, c := range line {
+			if i == startLineIdx && j < openIdx {
+				continue
+			}
+			if c == '(' {
+				if !started {
+					started = true
+					depth = 1
+					continue
+				}
+				depth++
+				paramBuilder.WriteRune(c)
+			} else if c == ')' {
+				depth--
+				if depth == 0 {
+					return paramBuilder.String()
+				}
+				paramBuilder.WriteRune(c)
+			} else if started {
+				paramBuilder.WriteRune(c)
+			}
+		}
+		if started {
+			paramBuilder.WriteString(" ")
+		}
+	}
+
+	return paramBuilder.String()
 }
 
 func CalculateNestingDepth(lines []string, startLine, endLine int, openBrackets, closeBrackets string) int {
